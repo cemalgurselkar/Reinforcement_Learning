@@ -1,3 +1,0 @@
-Episodes: 50
-Avg reward (last 100): 0.0000
-Final epsilon: 0.9512056281970315

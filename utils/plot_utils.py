@@ -1,81 +1,74 @@
-import matplotlib.pyplot as plt
-from typing import List
 import numpy as np
-import os
+import matplotlib
 
+# Backend'i pyplot'tan ÖNCE seç
+def _pick_backend():
+    try:
+        import tkinter  # GUI var mı?
+        matplotlib.use("TkAgg", force=True)
+        return True
+    except Exception:
+        matplotlib.use("Agg", force=True)
+        return False
 
-def plot_rewards(rewards: List[float], outdir: str):
-    plt.figure()
-    plt.plot(rewards, linewidth=1.5)
-    plt.xlabel("Episode")
-    plt.ylabel("Total Reward")
-    plt.title("Episode Rewards")
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(os.path.join(outdir, "rewards.png"))
-    plt.close()
+INTERACTIVE = _pick_backend()
 
-def plot_moving_avg(rewards: List[float], window: int, outdir: str):
-    if len(rewards) < window:
-        return
-    csum = np.cumsum(np.insert(rewards, 0, 0))
-    ma = (csum[window:] - csum[:-window]) / float(window)
-    plt.figure()
-    plt.plot(np.arange(window, window + len(ma)), ma, linewidth=1.5)
-    plt.xlabel("Episode")
-    plt.ylabel(f"Avg Reward ({window})")
-    plt.title(f"Moving Average Reward (window={window})")
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(os.path.join(outdir, f"moving_avg_{window}.png"))
-    plt.close()
+import matplotlib.pyplot as plt  # backend seçildikten sonra import!
 
-def plot_epsilon(epsilons: List[float], outdir: str):
-    plt.figure()
-    plt.plot(epsilons, linewidth=1.5)
-    plt.xlabel("Episode")
-    plt.ylabel("Epsilon")
-    plt.title("Epsilon Decay")
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(os.path.join(outdir, "epsilon.png"))
-    plt.close()
+def moving_avg(x, k):
+    if len(x) < k: 
+        return np.array(x, dtype=float)
+    c = np.cumsum(np.insert(np.array(x, dtype=float), 0, 0.0))
+    return (c[k:] - c[:-k]) / k
 
-def plot_episode_lengths(lengths: List[int], outdir: str):
-    plt.figure()
-    plt.plot(lengths, linewidth=1.0)
-    plt.xlabel("Episode")
-    plt.ylabel("Steps")
-    plt.title("Episode Lengths")
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(os.path.join(outdir, "episode_lengths.png"))
-    plt.close()
+def _finalize(fig, path: str | None):
+    fig.tight_layout()
+    if path is not None:
+        fig.savefig(path, dpi=150, bbox_inches="tight")
+    if INTERACTIVE:
+        plt.show()
+    plt.close(fig)  # bellek sızıntısını önle
 
-def plot_policy_grid_if_applicable(q_table: np.ndarray, env_name: str, state_count: int, outdir: str):
-    # FrozenLake 4x4 için basit 2D policy görselleştirme
-    side = int(np.sqrt(state_count))
-    if env_name.startswith("FrozenLake") and side * side == state_count:
-        policy = np.argmax(q_table, axis=1).reshape(side, side)
-        plt.figure()
-        im = plt.imshow(policy, interpolation="nearest")
-        plt.title("Learned Policy (0:← 1:↓ 2:→ 3:↑)")
-        plt.colorbar(im)
-        plt.tight_layout()
-        plt.savefig(os.path.join(outdir, "policy_grid.png"))
-        plt.close()
+def plot_all(ep_lengths, ep_returns, loss_log=None, eps_log=None, save_prefix="rl_plots", save_always=True):
+    # 1) Episode length
+    fig = plt.figure(figsize=(8,4))
+    ax = fig.add_subplot(111)
+    ax.set_title("Episode Length")
+    ax.plot(ep_lengths, label="length")
+    if len(ep_lengths) >= 20:
+        ma = moving_avg(ep_lengths, 20)
+        ax.plot(range(19, len(ep_lengths)), ma, label="MA(20)")
+    ax.set_xlabel("Episode"); ax.set_ylabel("Steps"); ax.legend()
+    _finalize(fig, f"{save_prefix}_length.png" if (save_always or not INTERACTIVE) else None)
 
-def finalize_plots(rewards, epsilons, ep_lengths, q_table, env_name, outdir):
-    os.makedirs(outdir, exist_ok=True)
-    plot_rewards(rewards, outdir)
-    plot_moving_avg(rewards, window=100, outdir=outdir)
-    plot_epsilon(epsilons, outdir)
-    plot_episode_lengths(ep_lengths, outdir)
-    plot_policy_grid_if_applicable(q_table, env_name, q_table.shape[0], outdir)
+    # 2) Episode return
+    fig = plt.figure(figsize=(8,4))
+    ax = fig.add_subplot(111)
+    ax.set_title("Episode Return")
+    ax.plot(ep_returns, label="return")
+    if len(ep_returns) >= 20:
+        ma = moving_avg(ep_returns, 20)
+        ax.plot(range(19, len(ep_returns)), ma, label="MA(20)")
+    ax.set_xlabel("Episode"); ax.set_ylabel("Return"); ax.legend()
+    _finalize(fig, f"{save_prefix}_return.png" if (save_always or not INTERACTIVE) else None)
 
-    # basit metrik özeti
-    avg_last_100 = float(np.mean(rewards[-100:])) if len(rewards) >= 100 else float(np.mean(rewards))
-    with open(os.path.join(outdir, "summary.txt"), "w", encoding="utf-8") as f:
-        f.write(f"Episodes: {len(rewards)}\n")
-        f.write(f"Avg reward (last 100): {avg_last_100:.4f}\n")
-        f.write(f"Final epsilon: {epsilons[-1] if epsilons else 'n/a'}\n")
+    # 3) Loss
+    if loss_log:
+        fig = plt.figure(figsize=(8,4))
+        ax = fig.add_subplot(111)
+        ax.set_title("Training Loss")
+        ax.plot(loss_log, label="loss")
+        if len(loss_log) >= 200:
+            ma = moving_avg(loss_log, 200)
+            ax.plot(range(199, len(loss_log)), ma, label="MA(200)")
+        ax.set_xlabel("Update step"); ax.set_ylabel("Loss"); ax.legend()
+        _finalize(fig, f"{save_prefix}_loss.png" if (save_always or not INTERACTIVE) else None)
+
+    # 4) Epsilon
+    if eps_log:
+        fig = plt.figure(figsize=(8,4))
+        ax = fig.add_subplot(111)
+        ax.set_title("Epsilon (ε)")
+        ax.plot(eps_log)
+        ax.set_xlabel("Env step"); ax.set_ylabel("ε")
+        _finalize(fig, f"{save_prefix}_epsilon.png" if (save_always or not INTERACTIVE) else None)
